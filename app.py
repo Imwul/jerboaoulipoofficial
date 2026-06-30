@@ -6,6 +6,8 @@ import os
 import re
 import json
 import base64
+import hashlib
+from collections import defaultdict
 
 # ==========================================
 # 🖼️ 역사적 인물 사진 설정 구역 (직접 삽입!)
@@ -133,17 +135,76 @@ st.markdown(f"""
 def load_kiwi(): return Kiwi()
 kiwi = load_kiwi()
 
+DEFAULT_NOUN_DICT = [
+    "거울", "파편", "심연", "공백", "기억", "망각", "미학", "구토", "이방인", "페스트", "시시포스", "환영", "균열", "기하학", "태엽", "미궁", "내장", "잿더미", "권태", "맹목",
+    "불안", "고독", "우울", "환멸", "동경", "예감", "전조", "침묵", "비명", "속삭임", "문장", "문법", "활자", "잉크", "종이", "책장", "서랍", "창문", "복도", "계단",
+    "지붕", "마당", "정원", "숲길", "사막", "해변", "강물", "바다", "하늘", "구름", "안개", "폭풍", "눈보라", "소나기", "번개", "달빛", "별빛", "그림자", "밤길", "새벽",
+    "황혼", "폐허", "유적", "성채", "다리", "항구", "시장", "광장", "극장", "서점", "병원", "감옥", "교회", "사원", "무덤", "골목", "도시", "마을", "방랑", "여행",
+    "지도", "나침반", "열쇠", "자물쇠", "가면", "인형", "장갑", "외투", "신발", "모자", "촛불", "시계", "바늘", "칼날", "가위", "밧줄", "유리", "수정", "보석", "조개",
+    "모래", "흙먼지", "꽃잎", "낙엽", "뿌리", "줄기", "열매", "씨앗", "새장", "깃털", "뼈대", "심장", "폐부", "혈관", "눈동자", "입술", "혀끝", "손목", "발목", "어깨",
+    "등뼈", "무릎", "체온", "숨결", "맥박", "상처", "흉터", "통증", "열병", "꿈결", "악몽", "몽상", "환각", "착시", "예언", "주문", "의식", "제단", "제물", "금기",
+    "실종", "결핍", "욕망", "충동", "광기", "이성", "무의식", "운명", "우연", "필연", "혼돈", "질서", "구조", "배열", "도형", "원환", "직선", "곡선", "사선", "여백",
+    "여운", "리듬", "반복", "변주", "단절", "봉합", "조각", "표본", "장면", "사건", "기록", "증언", "소문", "비밀", "암호", "수수께끼", "문턱", "경계", "틈새", "구멍"
+]
+
+def normalize_noun_list(raw_words):
+    cleaned = []
+    seen = set()
+    for word in raw_words:
+        w = re.sub(r"\s+", "", word.strip())
+        if not re.fullmatch(r"[가-힣]{2,5}", w or ""):
+            continue
+        if w in seen:
+            continue
+        seen.add(w)
+        cleaned.append(w)
+    return cleaned
+
 @st.cache_data
 def load_oulipo_dict():
+    fallback = sorted(normalize_noun_list(DEFAULT_NOUN_DICT))
     if os.path.exists("nouns.txt"):
         with open("nouns.txt", "r", encoding="utf-8") as f:
-            return f.read().splitlines()
-    return ["거울", "파편", "심연", "공백", "기억", "망각", "미학", "구토", "이방인", "페스트", "시시포스", "환영", "균열", "기하학", "태엽", "미궁", "내장", "잿더미", "권태", "맹목"]
+            words = normalize_noun_list(f.read().splitlines())
+        if len(words) >= 100:
+            return words, len(words), False
+        return fallback, len(words), True
+    return fallback, 0, True
 
-NOUN_DICT = load_oulipo_dict()
+NOUN_DICT, NOUN_SOURCE_COUNT, USING_FALLBACK_DICT = load_oulipo_dict()
+NOUN_INDEX = {word: idx for idx, word in enumerate(NOUN_DICT)}
+NOUN_LENGTH_BUCKETS = defaultdict(list)
+for noun in NOUN_DICT:
+    NOUN_LENGTH_BUCKETS[len(noun)].append(noun)
+QUALITY_NOUNS = [noun for noun in NOUN_DICT if 2 <= len(noun) <= 4]
 WASHED_COLORS = ["#ffc9c9", "#ffe3b3", "#fff3b5", "#d4f0d4", "#c9ebff", "#d9cbf2", "#ffcbf2"]
 
+def stable_hash(text):
+    return int(hashlib.md5(text.encode("utf-8")).hexdigest(), 16)
+
+def choose_similar_noun(source_word, shift=0):
+    target_len = min(5, max(2, len(source_word)))
+    for distance in (0, 1, 2, 3):
+        candidates = []
+        for length in (target_len - distance, target_len + distance):
+            candidates.extend(NOUN_LENGTH_BUCKETS.get(length, []))
+        if candidates:
+            return candidates[(stable_hash(source_word) + shift) % len(candidates)]
+    return QUALITY_NOUNS[(stable_hash(source_word) + shift) % len(QUALITY_NOUNS)]
+
+def replace_noun_token(token_form, shift):
+    if token_form in NOUN_INDEX:
+        return NOUN_DICT[(NOUN_INDEX[token_form] + shift) % len(NOUN_DICT)]
+    return choose_similar_noun(token_form, shift)
+
 st.title("Jerboa Circle: Surrealist Workshop")
+with st.sidebar:
+    st.markdown("### 한국어 명사 사전")
+    st.metric("현재 단어 수", f"{len(NOUN_DICT):,}개")
+    if USING_FALLBACK_DICT:
+        st.warning(f"nouns.txt가 없거나 너무 작습니다. 읽은 단어 수: {NOUN_SOURCE_COUNT}개. 내장 기본 사전을 사용합니다.")
+    else:
+        st.caption("nouns.txt에서 정제된 명사를 불러왔습니다.")
 
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "🏺 Oulipo", "🔪 Dissector", "🔥 Automaton", "⬛ Erasure", "📜 Cadavre", "🗼 Babel", "🌉 Roussel Procédé", "🚫 La Disparition"
@@ -175,8 +236,8 @@ with tab1:
 
     def transform_with_logic(line, shift, prob):
         parts = re.split(r'(<.*?>)', line)
-        d_len = len(NOUN_DICT)
         line_result = []
+        replacements = []
         for part in parts:
             if part.startswith('<') and part.endswith('>'): line_result.append(part[1:-1])
             elif part == '': continue
@@ -188,17 +249,18 @@ with tab1:
                 tokens = kiwi.tokenize(content)
                 sub_res = []
                 for t in tokens:
-                    if t.tag.startswith('N') and (hash(t.form) % 100) < prob:
-                        if t.form in NOUN_DICT: idx = (NOUN_DICT.index(t.form) + shift) % d_len; new_w = NOUN_DICT[idx]
-                        else: random.seed(hash(t.form)); new_w = NOUN_DICT[random.randint(0, d_len-1)]
+                    if t.tag.startswith('N') and len(t.form) >= 2 and (stable_hash(t.form) % 100) < prob:
+                        new_w = replace_noun_token(t.form, shift)
+                        replacements.append((t.form, new_w))
                         sub_res.append((new_w, 'NNG'))
                     else: sub_res.append((t.form, t.tag))
                 line_result.append(leading_ws + kiwi.join(sub_res) + trailing_ws)
-        return "".join(line_result)
+        return "".join(line_result), replacements
 
     if st.button("✨ 문장 재단하기", key="engine_btn"):
         if user_input:
             lines = user_input.split('\n')
+            all_replacements = []
             html_res = f"""
             <!DOCTYPE html><html><head>{FONT_CSS}
             <style>body{{margin:0; padding:10px; background:transparent;}} .box{{padding:25px; border:3px solid #000; background:#fff; line-height:2.3; word-wrap:break-word; white-space:pre-wrap; color:#000; font-family:'Eulyoo1945-Regular', serif;}}</style>
@@ -206,7 +268,8 @@ with tab1:
             """
             for line in lines:
                 if not line.strip(): html_res += '\n'; continue
-                transformed_line = transform_with_logic(line, shift_val, prob_val)
+                transformed_line, replacements = transform_with_logic(line, shift_val, prob_val)
+                all_replacements.extend(replacements)
                 for char in transformed_line:
                     if char == ' ': html_res += '&nbsp;'
                     else:
@@ -215,6 +278,19 @@ with tab1:
                 html_res += '\n'
             html_res += '</div></body></html>'
             components.html(html_res, height=400)
+            if all_replacements:
+                unique_pairs = []
+                seen_pairs = set()
+                for src, dst in all_replacements:
+                    pair = (src, dst)
+                    if pair not in seen_pairs:
+                        seen_pairs.add(pair)
+                        unique_pairs.append(pair)
+                st.caption("치환된 명사 목록: " + " · ".join([f"{src} → {dst}" for src, dst in unique_pairs[:30]]))
+                if len(unique_pairs) > 30:
+                    st.caption(f"외 {len(unique_pairs) - 30}개 치환")
+            else:
+                st.caption("치환된 명사가 없습니다. S+N 거리, 변환 확률, 입력 명사를 확인하세요.")
 
 # ==========================================
 # TAB 2: The Dissector
@@ -454,7 +530,9 @@ with tab6:
         if babel_input:
             tokens = kiwi.tokenize(babel_input); glitch_result = []
             for t in tokens:
-                if t.tag.startswith('N') and random.random() > 0.8: glitch_result.append((random.choice(SURREAL_NOUNS), t.tag))
+                if t.tag.startswith('N') and random.random() > 0.8:
+                    surreal_pool = SURREAL_NOUNS + [choose_similar_noun(t.form, random.randint(1, 999)) for _ in range(4)]
+                    glitch_result.append((random.choice(surreal_pool), t.tag))
                 elif t.tag.startswith('M') and random.random() > 0.5: glitch_result.append((random.choice(WEIRD_ADVERBS), t.tag))
                 elif t.tag.startswith('J'): glitch_result.append((random.choice(WEIRD_PARTICLES), t.tag)) if random.random() > 0.4 else glitch_result.append((t.form, t.tag))
                 elif t.tag.startswith('E'): glitch_result.append((random.choice(WEIRD_ENDINGS), t.tag)) if random.random() > 0.5 else glitch_result.append((t.form, t.tag))
@@ -518,7 +596,39 @@ def match_rhyme(target_str, word_str):
         if not is_loose_rhyme(target_str[-i], word_str[-i]): return False
     return True
 
-def get_all_matched_words(target_rhyme, dictionary_data):
+def match_exact_rhyme(target_str, word_str):
+    return bool(target_str) and len(word_str) >= len(target_str) and word_str.endswith(target_str)
+
+def rhyme_signature(word):
+    if not word:
+        return None
+    decomp = decompose_hangul(word[-1])
+    if not decomp:
+        return None
+    _, jung, jong = decomp
+    return get_loose_vowel(jung), jong
+
+def fallback_rhyme_score(target_rhyme, word):
+    if not target_rhyme or not word:
+        return -99
+    score = 0
+    target_last = decompose_hangul(target_rhyme[-1])
+    word_last = decompose_hangul(word[-1])
+    if target_last and word_last:
+        _, t_jung, t_jong = target_last
+        _, w_jung, w_jong = word_last
+        if get_loose_vowel(t_jung) == get_loose_vowel(w_jung):
+            score += 8
+        if t_jong == w_jong:
+            score += 5
+        if t_jung == w_jung:
+            score += 2
+    if len(target_rhyme) >= 2 and len(word) >= 2 and match_rhyme(target_rhyme[-2:], word):
+        score += 6
+    score -= abs(len(word) - max(2, len(target_rhyme)))
+    return score
+
+def get_all_matched_words(target_rhyme, dictionary_data, loose_mode=True):
     if not target_rhyme or not dictionary_data: return []
     def get_uniques(word_list):
         word_list.sort(key=len)
@@ -527,16 +637,17 @@ def get_all_matched_words(target_rhyme, dictionary_data):
             if not any(w.endswith(u) for u in uniques): uniques.append(w)
         return uniques
 
-    matched_words = [word for word in dictionary_data if match_rhyme(target_rhyme, word)]
+    matcher = match_rhyme if loose_mode else match_exact_rhyme
+    matched_words = [word for word in dictionary_data if matcher(target_rhyme, word)]
     unique_words = get_uniques(matched_words)
     
-    if len(unique_words) < 25 and len(target_rhyme) >= 3:
+    if loose_mode and len(unique_words) < 25 and len(target_rhyme) >= 3:
         shorter_target = target_rhyme[-2:]
         add_words = [word for word in dictionary_data if match_rhyme(shorter_target, word) and word not in matched_words]
         matched_words.extend(add_words)
         unique_words = get_uniques(matched_words)
         
-    if len(unique_words) < 25 and len(target_rhyme) >= 2:
+    if loose_mode and len(unique_words) < 25 and len(target_rhyme) >= 2:
         last_char_target = target_rhyme[-1:]
         add_words = [word for word in dictionary_data if match_rhyme(last_char_target, word) and word not in matched_words]
         matched_words.extend(add_words)
@@ -544,10 +655,9 @@ def get_all_matched_words(target_rhyme, dictionary_data):
         
     if len(unique_words) < 25:
         needed = 25 - len(unique_words)
-        remainders = list(set(dictionary_data) - set(unique_words))
-        if remainders:
-            fillers = random.sample(remainders, min(needed, len(remainders)))
-            unique_words.extend(fillers)
+        remainders = [word for word in dictionary_data if word not in unique_words]
+        scored = sorted(remainders, key=lambda word: (fallback_rhyme_score(target_rhyme, word), -abs(len(word) - len(target_rhyme)), stable_hash(word)), reverse=True)
+        unique_words.extend(scored[:needed])
             
     if len(unique_words) > 25: unique_words = random.sample(unique_words, 25)
     else: random.shuffle(unique_words)
@@ -627,17 +737,25 @@ with tab7:
     if 't7_initial_phrase' not in st.session_state: st.session_state.t7_initial_phrase = ""
     if 't7_base_phrase' not in st.session_state: st.session_state.t7_base_phrase = ""
     if 't7_selected_word' not in st.session_state: st.session_state.t7_selected_word = ""
+    if 't7_loose_rhyme' not in st.session_state: st.session_state.t7_loose_rhyme = True
 
     if st.session_state.t7_step == 1:
         st.markdown("##### 시간의 파편 던지기")
         initial_phrase = st.text_input("한 줄의 어구를 입력하세요:", key="t7_input")
+        rhyme_mode = st.radio(
+            "라임 후보 방식",
+            ["느슨한 라임", "정확한 라임"],
+            horizontal=True,
+            help="후보가 적을 때도 마지막 음절의 모음, 받침, 단어 길이가 가까운 명사를 우선 보충합니다."
+        )
         if st.button("✨ 언어의 파편 흩뿌리기", key="t7_btn1", type="secondary"):
             if initial_phrase:
                 st.session_state.t7_initial_phrase = initial_phrase
                 words = initial_phrase.strip().split()
                 st.session_state.t7_base_phrase = " ".join(words[:-1]) if len(words) > 1 else ""
                 rhyme_target = get_rhyme_target(initial_phrase)
-                st.session_state.t7_generated_words = get_all_matched_words(rhyme_target, NOUN_DICT)
+                st.session_state.t7_loose_rhyme = rhyme_mode == "느슨한 라임"
+                st.session_state.t7_generated_words = get_all_matched_words(rhyme_target, NOUN_DICT, st.session_state.t7_loose_rhyme)
                 st.session_state.t7_step = 2
                 st.rerun()
 
@@ -650,6 +768,7 @@ with tab7:
         <div style='text-align: center; margin-bottom: 30px; font-size: 1.4em;'>
             <span style='color: #888;'>원본 어구:</span> 
             <b>{base_phrase} <span style='color: #d32f2f;'>{rhyme_word}</span></b>
+            <div style='font-size:0.8em; color:#777; margin-top:8px;'>후보 방식: {"느슨한 라임" if st.session_state.t7_loose_rhyme else "정확한 라임"}</div>
         </div>
         """, unsafe_allow_html=True)
         
