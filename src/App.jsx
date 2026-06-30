@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 const WASHED_COLORS = ["#ffc9c9", "#ffe3b3", "#fff3b5", "#d4f0d4", "#c9ebff", "#d9cbf2", "#ffcbf2"];
+const assetPath = (file) => `${import.meta.env.BASE_URL}${file}`;
 const DEFAULT_NOUNS = [
   "거울",
   "파편",
@@ -44,49 +45,49 @@ const HISTORY = {
   oulipo: {
     label: "Oulipo",
     title: "S+N 치환",
-    image: "/queneau.jpg",
+    image: assetPath("queneau.jpg"),
     text: "레몽 크노와 장 레스퀴르가 고안한 울리포식 제약 글쓰기입니다. 명사를 사전의 N번째 뒤 단어로 밀어내며, 의도보다 규칙이 먼저 움직이게 합니다."
   },
   dissect: {
     label: "Dissector",
     title: "컷업 마그넷",
-    image: "/burroughs.jpg",
+    image: assetPath("burroughs.jpg"),
     text: "트리스탄 차라와 윌리엄 버로스의 컷업 기법을 브라우저 위의 종이 조각으로 바꿨습니다. 단어를 움직이고 자르고 붙여 우연한 배열을 만듭니다."
   },
   automaton: {
     label: "Automaton",
     title: "자동 기술",
-    image: "/breton.jpg",
+    image: assetPath("breton.jpg"),
     text: "앙드레 브르통의 자동 기술법처럼 멈추지 않고 쓰는 도구입니다. 오래 멈추면 최근 문장이 사라지고, 수정은 일부러 버겁게 느껴집니다."
   },
   erasure: {
     label: "Erasure",
     title: "소거시",
-    image: "/duchamp.jpg",
+    image: assetPath("duchamp.jpg"),
     text: "이미 있는 문장을 지워 남은 파편으로 새 시를 만드는 방식입니다. 클릭하거나 드래그해 단어를 검게 덮습니다."
   },
   corpse: {
     label: "Cadavre",
     title: "우아한 시체",
-    image: "/dali.jpg",
+    image: assetPath("dali.jpg"),
     text: "앞 문장의 끝 일부만 보고 이어 쓰는 초현실주의 집단 놀이입니다. 문맥은 접히고, 마지막 세 어절만 다음 사람에게 남습니다."
   },
   babel: {
     label: "Babel",
     title: "바벨 글리치",
-    image: "/hausmann.jpg",
+    image: assetPath("hausmann.jpg"),
     text: "다다이즘의 활자 콜라주처럼 문장을 일부러 오역하고 흔듭니다. 의미를 전달하는 문장이 이미지처럼 흐트러집니다."
   },
   roussel: {
     label: "Roussel",
     title: "루셀의 다리",
-    image: "/roussel.jpg",
+    image: assetPath("roussel.jpg"),
     text: "비슷한 소리의 두 문장을 양끝에 두고 그 사이의 불가능한 서사를 쓰는 레몽 루셀식 절차입니다."
   },
   disparition: {
     label: "La Disparition",
     title: "립포그램",
-    image: "/perec.jpg",
+    image: assetPath("perec.jpg"),
     text: "조르주 페렉의 『실종』처럼 금지된 글자와 단어를 피해 글을 씁니다. 금지를 밟는 순간 문장은 되돌아갑니다."
   }
 };
@@ -125,7 +126,7 @@ function App() {
   const [state, setState] = useLocalState("jerboa-oulipo-save-v2", initialState);
 
   useEffect(() => {
-    fetch("/nouns.txt")
+    fetch(assetPath("nouns.txt"))
       .then((res) => (res.ok ? res.text() : ""))
       .then((text) => {
         const loaded = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
